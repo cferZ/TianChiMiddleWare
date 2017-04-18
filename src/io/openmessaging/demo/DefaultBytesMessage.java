@@ -1,6 +1,5 @@
 package io.openmessaging.demo;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 

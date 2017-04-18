@@ -65,7 +65,7 @@ public class DefaultKeyValue implements KeyValue {
     }
     
     public byte[] getBytes() throws IOException{
-    	byte[] buf=util.serializationUtil.getByteBuffer((HashMap)kvs);
+    	byte[] buf=util.serializationUtil.getByteBuffer((HashMap<String,Object>)kvs);
     	return buf;
     }
 }

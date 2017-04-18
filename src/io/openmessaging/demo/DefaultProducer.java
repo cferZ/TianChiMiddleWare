@@ -58,10 +58,12 @@ public class DefaultProducer  implements Producer {
         ByteBuffer buf=((DefaultBytesMessage)message).getByteBuffer();
         try {
         	String path=message.properties().getString("STORE_PATH")+File.pathSeparator+topic != null ? topic : queue;
-			FileChannel channel=new RandomAccessFile(path,"rw").getChannel();
+			RandomAccessFile randomFile=new RandomAccessFile(path,"rw");
+        	FileChannel channel=randomFile.getChannel();
 			channel.position(channel.size());
 			channel.write(buf);
 			channel.close();
+			randomFile.close();
 		} catch (FileNotFoundException  e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
