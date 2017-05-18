@@ -1,12 +1,5 @@
 package io.openmessaging.demo;
 
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.RandomAccessFile;
-import java.nio.ByteBuffer;
-import java.nio.channels.FileChannel;
-
 import io.openmessaging.BatchToPartition;
 import io.openmessaging.BytesMessage;
 import io.openmessaging.KeyValue;
@@ -54,20 +47,7 @@ public class DefaultProducer  implements Producer {
         if ((topic == null && queue == null) || (topic != null && queue != null)) {
             throw new ClientOMSException(String.format("Queue:%s Topic:%s should put one and only one", true, queue));
         }
-        //先写文件再put消息
-        ByteBuffer buf=((DefaultBytesMessage)message).getByteBuffer();
-        try {
-        	String path=message.properties().getString("STORE_PATH")+File.pathSeparator+topic != null ? topic : queue;
-			RandomAccessFile randomFile=new RandomAccessFile(path,"rw");
-        	FileChannel channel=randomFile.getChannel();
-			channel.position(channel.size());
-			channel.write(buf);
-			channel.close();
-			randomFile.close();
-		} catch (FileNotFoundException  e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}catch(IOException e){}
+
         messageStore.putMessage(topic != null ? topic : queue, message);
     }
 
