@@ -17,6 +17,7 @@ public class DefaultProducer  implements Producer {
 
     public DefaultProducer(KeyValue properties) {
         this.properties = properties;
+        messageStore.setSaveFilePathIfNot(properties.getString("STORE_PATH"));
     }
 
 
