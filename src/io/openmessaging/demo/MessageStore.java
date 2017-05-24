@@ -20,6 +20,7 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+
 public class MessageStore {
 
 	private final String EXTNAME=".queue";
@@ -103,9 +104,10 @@ public class MessageStore {
 	            offsetMap = new HashMap<>();
 	            queueOffsets.put(queue, offsetMap);
 	        }
-	        Integer offset = offsetMap.getOrDefault(bucket, 0);
+	        int[] offset =new int[1]; 
+	        offset[0]=offsetMap.getOrDefault(bucket, 0);
 	        //from file
-	        if (offset >= f.size()) {
+	        if (offset[0] >= f.size()) {
 	            return null;
 	        }
 	       
@@ -116,7 +118,7 @@ public class MessageStore {
 	        if(message==null)
 	        	return null;
 	        
-	        offsetMap.put(bucket, offset);
+	        offsetMap.put(bucket, offset[0]);
 	        return message;
         }
         catch(Exception e){
@@ -124,16 +126,22 @@ public class MessageStore {
         }
         return null;
     }
-    private DefaultBytesMessage getMessageFromFile(FileChannel f,Integer offset){
+    private DefaultBytesMessage getMessageFromFile(FileChannel f,int[] offset){
     	ByteBuffer buf=ByteBuffer.allocate(MAXMESSAGELENGTH);
     	try {
-    		int len=f.read(buf,offset);
+    		int len=f.read(buf,offset[0]);
     		ByteArrayInputStream in=new ByteArrayInputStream(buf.array());
+    		byte[] lenBuf=new byte[4];
+    		for(int i=0;i<4;i++){
+    			lenBuf[i]=(byte) in.read();
+    		}
     		ObjectInputStream ois=new ObjectInputStream(in);
-    		int from=ois.available();
     		DefaultBytesMessage result=(DefaultBytesMessage) ois.readObject();
-    		int to=ois.available();
-    		offset+=(from-to);
+    		int length=0;
+    		for(int i=0;i<4;i++){
+    			length=(length<<8)+lenBuf[i]&0xff;
+    		}
+    		offset[0]+=length+4;
 			return result;
 		} catch (Exception e) {
 			// TODO Auto-generated catch block
@@ -210,13 +218,14 @@ public class MessageStore {
 								file.createNewFile();
 							}
 							f = new RandomAccessFile(file, "rw").getChannel();
-							fileHandlers.put(OFFSETFILE, f);
+							fileHandlers.put(key, f);
 						}
 						ByteArrayOutputStream out=new ByteArrayOutputStream();
 						ObjectOutputStream oos=new ObjectOutputStream(out);
-						oos.writeObject(queueOffsets);
+						oos.writeObject(message);
 						byte[] objectBuf=out.toByteArray();
-						ByteBuffer buf=ByteBuffer.allocate(objectBuf.length);
+						ByteBuffer buf=ByteBuffer.allocate(objectBuf.length+4);
+						buf.putInt(objectBuf.length);
 						buf.put(objectBuf);
 						buf.flip();
 						synchronized (f) {

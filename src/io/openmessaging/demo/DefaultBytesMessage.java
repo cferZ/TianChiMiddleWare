@@ -1,8 +1,10 @@
 package io.openmessaging.demo;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.nio.ByteBuffer;
 
@@ -128,5 +130,30 @@ public class DefaultBytesMessage implements BytesMessage,Serializable {
 			e.printStackTrace();
 		}
     	return null;
+    }
+    @Override
+    public boolean equals(Object obj) {
+    	// TODO Auto-generated method stub
+    	try{
+	    	ByteArrayOutputStream out=new ByteArrayOutputStream();
+			ObjectOutputStream oos=new ObjectOutputStream(out);
+			oos.writeObject(obj);
+			byte[] obj1=out.toByteArray();
+			oos.close();
+			out.close();
+			out=new ByteArrayOutputStream();
+			oos=new ObjectOutputStream(out);
+			oos.writeObject(this);
+			byte[] obj2=out.toByteArray();
+			if(obj2.length!=obj1.length){
+				return false;
+			}
+			for(int i=0;i<obj1.length;i++){
+				if(obj1[i]!=obj2[i]){
+					return false;
+				}
+			}
+    	}catch(Exception e ){}
+    	return true;
     }
 }
