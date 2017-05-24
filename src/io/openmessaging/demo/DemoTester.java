@@ -15,7 +15,7 @@ public class DemoTester {
 
     public static void main(String[] args) {
         KeyValue properties = new DefaultKeyValue();
-        properties.put("STORE_PATH", "/home/admin/test"); //实际测试时利用 STORE_PATH 传入存储路径
+        properties.put("STORE_PATH", "./test/"); //实际测试时利用 STORE_PATH 传入存储路径
 
         //这个测试程序的测试逻辑与实际评测相似，但注意这里是单线程的，实际测试时会是多线程的，并且发送完之后会Kill进程，再起消费逻辑
 
@@ -51,7 +51,12 @@ public class DemoTester {
         long T1 = end - start;
 
         //请保证数据写入磁盘中
-
+        try {
+			Thread.sleep(6000);
+		} catch (InterruptedException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
         //消费样例1，实际测试时会Kill掉发送进程，另取进程进行消费
         {
             PullConsumer consumer1 = new DefaultPullConsumer(properties);

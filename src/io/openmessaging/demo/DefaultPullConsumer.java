@@ -20,6 +20,7 @@ public class DefaultPullConsumer implements PullConsumer {
 
     public DefaultPullConsumer(KeyValue properties) {
         this.properties = properties;
+        messageStore.setSaveFilePathIfNot(properties.getString("STORE_PATH"));
     }
 
 

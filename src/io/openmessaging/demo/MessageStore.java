@@ -2,16 +2,23 @@ package io.openmessaging.demo;
 
 import io.openmessaging.Message;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class MessageStore {
 
@@ -20,12 +27,12 @@ public class MessageStore {
 	private final int MAXMESSAGELENGTH=256*1024;
 	private final String OFFSETFILE="MsgOffsets";
 	private static String STORE_PATH=null;
-    private static final MessageStore INSTANCE = new MessageStore();
+    
      
     private static final HashMap<String,FileChannel> fileHandlers=new HashMap<>();
     
     private static final HashMap<String , Integer> bucketIndex=new HashMap<>();
-    
+    private static final MessageStore INSTANCE = new MessageStore();
     private Thread loopSaveHandler=null;
     private Thread indexSaveHandler=null;							
     public MessageStore() {
@@ -36,19 +43,23 @@ public class MessageStore {
 			if (f == null) {
 				//TODO
 				File file = new File(STORE_PATH + File.pathSeparator + OFFSETFILE + EXTNAME);
-				if (!file.exists()) {
-					file.createNewFile();
-				}
-				f = new RandomAccessFile(file, "rw").getChannel();
-				fileHandlers.put(OFFSETFILE, f);
+				if (file.exists()) {
+					System.out.println(file.getAbsolutePath());
+					f = new RandomAccessFile(file, "rw").getChannel();
+					fileHandlers.put(OFFSETFILE, f);
+					ByteBuffer buff=ByteBuffer.allocate(MAXMESSAGELENGTH);
+					f.read(buff);
+					queueOffsets=(HashMap) new ObjectInputStream(new ByteArrayInputStream(buff.array())).readObject();
+				}	
 			}
+			
     	}catch (Exception e){
     		e.printStackTrace();
     	}
     	loopSaveHandler=new Thread(new LoopSave());
-    	loopSaveHandler.start();
+    	//loopSaveHandler.start();
     	indexSaveHandler=new Thread(new IndexSave());
-    	indexSaveHandler.start();
+    	//indexSaveHandler.start();
 	}
 
     public static MessageStore getInstance() {
@@ -56,11 +67,14 @@ public class MessageStore {
     }
     
     public void setSaveFilePathIfNot(String path){
-    	if(STORE_PATH==null)
+    	if(STORE_PATH==null){
     		STORE_PATH=path;
+    		loopSaveHandler.start();
+    		indexSaveHandler.start();
+    	}
     }
     
-    private Map<String, ArrayList<Message>> messageBuckets = new HashMap<>();
+    private Map<String, ArrayList<Message>> messageBuckets = new ConcurrentHashMap<>();
 
     private Map<String, HashMap<String, Integer>> queueOffsets = new HashMap<>();
 
@@ -74,23 +88,59 @@ public class MessageStore {
 
     public synchronized Message pullMessage(String queue, String bucket) {
         ArrayList<Message> bucketList = messageBuckets.get(bucket);
-        if (bucketList == null) {
-            return null;
+        FileChannel f = fileHandlers.get(bucket);
+        try{
+	        if (f == null) {//file not exist return null
+	        	File file = new File(STORE_PATH + File.pathSeparator + bucket + EXTNAME);
+				if (!file.exists()) {
+					return null;
+				}
+				f = new RandomAccessFile(file, "rw").getChannel();
+				fileHandlers.put(bucket, f);
+	        }
+	        HashMap<String, Integer> offsetMap = queueOffsets.get(queue);
+	        if (offsetMap == null) {
+	            offsetMap = new HashMap<>();
+	            queueOffsets.put(queue, offsetMap);
+	        }
+	        Integer offset = offsetMap.getOrDefault(bucket, 0);
+	        //from file
+	        if (offset >= f.size()) {
+	            return null;
+	        }
+	       
+	        Message message = null;
+	        synchronized(f){
+	        	message=getMessageFromFile(f, offset);
+	        }
+	        if(message==null)
+	        	return null;
+	        
+	        offsetMap.put(bucket, offset);
+	        return message;
         }
-        HashMap<String, Integer> offsetMap = queueOffsets.get(queue);
-        if (offsetMap == null) {
-            offsetMap = new HashMap<>();
-            queueOffsets.put(queue, offsetMap);
+        catch(Exception e){
+        	e.printStackTrace();
         }
-        int offset = offsetMap.getOrDefault(bucket, 0);
-        if (offset >= bucketList.size()) {
-            return null;
-        }
-        Message message = bucketList.get(offset);
-        offsetMap.put(bucket, ++offset);
-        return message;
+        return null;
     }
-    
+    private DefaultBytesMessage getMessageFromFile(FileChannel f,Integer offset){
+    	ByteBuffer buf=ByteBuffer.allocate(MAXMESSAGELENGTH);
+    	try {
+    		int len=f.read(buf,offset);
+    		ByteArrayInputStream in=new ByteArrayInputStream(buf.array());
+    		ObjectInputStream ois=new ObjectInputStream(in);
+    		int from=ois.available();
+    		DefaultBytesMessage result=(DefaultBytesMessage) ois.readObject();
+    		int to=ois.available();
+    		offset+=(from-to);
+			return result;
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+    	return null;
+    }
     
     private class IndexSave implements Runnable{
 	    @Override
@@ -107,18 +157,18 @@ public class MessageStore {
 						if (!file.exists()) {
 							file.createNewFile();
 						}
-						f = new RandomAccessFile(file, "w").getChannel();
+						f = new RandomAccessFile(file, "rw").getChannel();
 						fileHandlers.put(OFFSETFILE, f);
 					}
 					buf.clear();
-					byte[] content=util.serializationUtil.getByteBuffer((HashMap) queueOffsets);
-					byte[] lengthBuf=new byte[4];
-					for(int i=0;i<4;i++){
-						lengthBuf[i]=(byte) ((content.length>>(8*(3-i)))&0xff);
-					}
-					buf.put(lengthBuf);
-					buf.put(content);
+					ByteArrayOutputStream out=new ByteArrayOutputStream();
+					ObjectOutputStream oos=new ObjectOutputStream(out);
+					oos.writeObject(queueOffsets);
+					byte[] objectBuf=out.toByteArray();
+					buf.put(objectBuf);
+					buf.flip();
 					synchronized (f) {
+						f.position(0);
 						f.write(buf);
 						f.force(true);
 					} 
@@ -146,6 +196,9 @@ public class MessageStore {
 						continue;
 					}
 					Message message = bucketList.get(offset);
+					if(message==null){
+						continue;
+					}
 					bucketIndex.put(key, ++offset);
 					//写文件
 					FileChannel f = fileHandlers.get(key);
@@ -159,9 +212,16 @@ public class MessageStore {
 							f = new RandomAccessFile(file, "rw").getChannel();
 							fileHandlers.put(OFFSETFILE, f);
 						}
+						ByteArrayOutputStream out=new ByteArrayOutputStream();
+						ObjectOutputStream oos=new ObjectOutputStream(out);
+						oos.writeObject(queueOffsets);
+						byte[] objectBuf=out.toByteArray();
+						ByteBuffer buf=ByteBuffer.allocate(objectBuf.length);
+						buf.put(objectBuf);
+						buf.flip();
 						synchronized (f) {
 							f.position(f.size());
-							f.write(((DefaultBytesMessage) message).getByteBuffer());
+							int len=f.write(buf);
 							f.force(true);
 						}
 					} catch (Exception e) {

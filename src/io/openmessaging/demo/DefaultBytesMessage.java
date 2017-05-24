@@ -1,13 +1,16 @@
 package io.openmessaging.demo;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.Serializable;
 import java.nio.ByteBuffer;
 
 import io.openmessaging.BytesMessage;
 import io.openmessaging.KeyValue;
 import io.openmessaging.Message;
 
-public class DefaultBytesMessage implements BytesMessage {
+public class DefaultBytesMessage implements BytesMessage,Serializable {
 
     private KeyValue headers = new DefaultKeyValue();
     private KeyValue properties;
@@ -80,8 +83,15 @@ public class DefaultBytesMessage implements BytesMessage {
     	ByteBuffer buf=null;
     	try{
 	    	byte[] header=((DefaultKeyValue)headers).getBytes();
-	    	byte[] propertiesbuf=((DefaultKeyValue)properties).getBytes();
-	    	int bufLength=header.length+propertiesbuf.length+body.length+3;
+	    	byte[] propertiesbuf=null;
+	    	if(properties==null){
+	    		propertiesbuf=new byte[0];
+	    	}
+	    	else{
+	    		propertiesbuf=((DefaultKeyValue)properties).getBytes();
+	    	}
+	    	
+	    	int bufLength=header.length+propertiesbuf.length+body.length+27;
 	    	buf=ByteBuffer.allocate(bufLength);
 	    	buf.put((byte) 0x01);
 	    	buf.putLong(header.length);
@@ -92,8 +102,31 @@ public class DefaultBytesMessage implements BytesMessage {
 	    	buf.put((byte) 0x03);
 	    	buf.putLong(body.length);
 	    	buf.put(body);
+	    	buf.flip();
     	}
     	catch(IOException e){}
 	    return buf;
+    }
+    public static DefaultBytesMessage buildMessageFromByte(byte[] buf){
+    	try {
+	    	ByteArrayInputStream bais=new ByteArrayInputStream(buf);
+	    	ObjectInputStream ois=new ObjectInputStream(bais);
+	    	ois.read();
+	    	long headerLength=ois.readLong();
+	    	DefaultBytesMessage result=new DefaultBytesMessage(null);
+			result.headers=(KeyValue)ois.readObject();
+			ois.read();
+			long propLength=ois.readLong();
+			result.properties=(KeyValue)ois.readObject();
+			ois.read();
+			long bodyLength=ois.readLong();
+			result.body=new byte[(int)bodyLength];
+			ois.read(result.body, 0, (int)bodyLength);
+			return result;
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+    	return null;
     }
 }
