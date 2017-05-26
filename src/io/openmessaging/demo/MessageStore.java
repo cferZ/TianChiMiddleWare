@@ -45,7 +45,7 @@ public class MessageStore {
 				//TODO
 				File file = new File(STORE_PATH + File.pathSeparator + OFFSETFILE + EXTNAME);
 				if (file.exists()) {
-					System.out.println(file.getAbsolutePath());
+//					System.out.println(file.getAbsolutePath());
 					f = new RandomAccessFile(file, "rw").getChannel();
 					fileHandlers.put(OFFSETFILE, f);
 					ByteBuffer buff=ByteBuffer.allocate(MAXMESSAGELENGTH);
@@ -78,7 +78,6 @@ public class MessageStore {
     private Map<String, ArrayList<Message>> messageBuckets = new ConcurrentHashMap<>();
 
     private Map<String, HashMap<String, Integer>> queueOffsets = new HashMap<>();
-
     public synchronized void putMessage(String bucket, Message message) {
         if (!messageBuckets.containsKey(bucket)) {
             messageBuckets.put(bucket, new ArrayList<>(1024));
@@ -139,7 +138,8 @@ public class MessageStore {
     		DefaultBytesMessage result=(DefaultBytesMessage) ois.readObject();
     		int length=0;
     		for(int i=0;i<4;i++){
-    			length=(length<<8)+lenBuf[i]&0xff;
+    			length=(length<<8);
+    			length+=(lenBuf[i]&0xff);
     		}
     		offset[0]+=length+4;
 			return result;
@@ -207,6 +207,7 @@ public class MessageStore {
 					if(message==null){
 						continue;
 					}
+//					System.out.println(message);
 					bucketIndex.put(key, ++offset);
 					//写文件
 					FileChannel f = fileHandlers.get(key);
@@ -224,6 +225,7 @@ public class MessageStore {
 						ObjectOutputStream oos=new ObjectOutputStream(out);
 						oos.writeObject(message);
 						byte[] objectBuf=out.toByteArray();
+		//				System.out.println(objectBuf.length);
 						ByteBuffer buf=ByteBuffer.allocate(objectBuf.length+4);
 						buf.putInt(objectBuf.length);
 						buf.put(objectBuf);

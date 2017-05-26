@@ -52,7 +52,7 @@ public class DemoTester {
 
         //请保证数据写入磁盘中
         try {
-			Thread.sleep(6000);
+			Thread.sleep(5000);
 		} catch (InterruptedException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
@@ -85,7 +85,7 @@ public class DemoTester {
             long endConsumer = System.currentTimeMillis();
             long T2 = endConsumer - startConsumer;
             System.out.println(String.format("Team1 cost:%d ms tps:%d q/ms", T2 + T1, (queue1Offset + topic1Offset)/(T1 + T2)));
-
+            System.out.println(String.format("Team2 T1:%d ms consume:%d q", T2, (queue1Offset + topic1Offset)));
         }
 
         //消费样例2，实际测试时会Kill掉发送进程，另取进程进行消费
@@ -124,8 +124,16 @@ public class DemoTester {
             long endConsumer = System.currentTimeMillis();
             long T2 = endConsumer - startConsumer;
             System.out.println(String.format("Team2 cost:%d ms tps:%d q/ms", T2 + T1, (queue2Offset + topic1Offset)/(T1 + T2)));
+            System.out.println(String.format("Team2 T2:%d ms consume:%d q", T2, (queue2Offset + topic1Offset)));
         }
-
+while(true){
+	try {
+		Thread.sleep(5000);
+	} catch (InterruptedException e) {
+		// TODO Auto-generated catch block
+		e.printStackTrace();
+	}
+}
 
     }
 }
