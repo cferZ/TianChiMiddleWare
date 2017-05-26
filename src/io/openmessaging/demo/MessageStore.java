@@ -11,7 +11,9 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
+import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
+import java.nio.channels.FileChannel.MapMode;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -70,7 +72,7 @@ public class MessageStore {
     public void setSaveFilePathIfNot(String path){
     	if(STORE_PATH==null){
     		STORE_PATH=path;
-    		loopSaveHandler.start();
+    	//	loopSaveHandler.start();
     		indexSaveHandler.start();
     	}
     }
@@ -79,11 +81,35 @@ public class MessageStore {
 
     private Map<String, HashMap<String, Integer>> queueOffsets = new HashMap<>();
     public synchronized void putMessage(String bucket, Message message) {
-        if (!messageBuckets.containsKey(bucket)) {
-            messageBuckets.put(bucket, new ArrayList<>(1024));
-        }
-        ArrayList<Message> bucketList = messageBuckets.get(bucket);
-        bucketList.add(message);
+    	FileChannel f = fileHandlers.get(bucket);
+		try {
+			if (f == null) {
+				//TODO
+				File file = new File(STORE_PATH + File.pathSeparator + bucket + EXTNAME);
+				if (!file.exists()) {
+					file.createNewFile();
+				}
+				f = new RandomAccessFile(file, "rw").getChannel();
+				fileHandlers.put(bucket, f);
+			}
+			ByteArrayOutputStream out=new ByteArrayOutputStream();
+			ObjectOutputStream oos=new ObjectOutputStream(out);
+			oos.writeObject(message);
+			byte[] objectBuf=out.toByteArray();
+//				System.out.println(objectBuf.length);
+			ByteBuffer buf=ByteBuffer.allocate(objectBuf.length+4);
+			buf.putInt(objectBuf.length);
+			buf.put(objectBuf);
+			buf.flip();
+			synchronized (f) {
+				MappedByteBuffer mmb=f.map(FileChannel.MapMode.READ_WRITE, f.size(),objectBuf.length+4 );
+				mmb.put(buf);
+			}
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+
     }
 
     public synchronized Message pullMessage(String queue, String bucket) {
@@ -126,21 +152,15 @@ public class MessageStore {
         return null;
     }
     private DefaultBytesMessage getMessageFromFile(FileChannel f,int[] offset){
-    	ByteBuffer buf=ByteBuffer.allocate(MAXMESSAGELENGTH);
     	try {
-    		int len=f.read(buf,offset[0]);
-    		ByteArrayInputStream in=new ByteArrayInputStream(buf.array());
-    		byte[] lenBuf=new byte[4];
-    		for(int i=0;i<4;i++){
-    			lenBuf[i]=(byte) in.read();
-    		}
+    		MappedByteBuffer mmb=f.map(MapMode.READ_ONLY, offset[0], 4);
+    		int length=mmb.getInt();
+    		mmb=f.map(MapMode.READ_ONLY, offset[0]+4, length);
+    		byte[] buf=new byte[length];
+    		mmb.get(buf);
+    		ByteArrayInputStream in=new ByteArrayInputStream(buf);
     		ObjectInputStream ois=new ObjectInputStream(in);
     		DefaultBytesMessage result=(DefaultBytesMessage) ois.readObject();
-    		int length=0;
-    		for(int i=0;i<4;i++){
-    			length=(length<<8);
-    			length+=(lenBuf[i]&0xff);
-    		}
     		offset[0]+=length+4;
 			return result;
 		} catch (Exception e) {

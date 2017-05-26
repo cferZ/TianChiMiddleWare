@@ -78,6 +78,7 @@ public class ProducerTester {
     }
 
     public static void main(String[] args) throws Exception {
+    	Thread.sleep(20000);
         Thread[] ts = new Thread[Constants.PRO_NUM];
         for (int i = 0; i < ts.length; i++) {
             ts[i] = new ProducerTask(Constants.PRO_PRE + i);
