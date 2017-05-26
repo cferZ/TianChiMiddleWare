@@ -25,33 +25,36 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class MessageStore {
 
-	private final String EXTNAME=".queue";
-	private final int LOOPINTERVAL=1000;
-	private final int MAXMESSAGELENGTH=256*1024;
-	private final String OFFSETFILE="MsgOffsets";
-	private static String STORE_PATH=null;
+	private final String EXTNAME=".queue";//扩展名
+	private final int LOOPINTERVAL=1000;//循环存offset map 的间隔
+	private final int MAXMESSAGELENGTH=256*1024;//每条消息最大长度
+	private final String OFFSETFILE="MsgOffsets";//queueoffset 文件名
+	private static String STORE_PATH=null;//存储路径
+    private final int MAXMAPBYTEBUFFER=50*1024*1024;//内存映射文件最大大小
     
-     
-    private static final HashMap<String,FileChannel> fileHandlers=new HashMap<>();
-    
+    private static final ConcurrentHashMap<String,MappedByteBuffer> fileHandlers=new ConcurrentHashMap<>();//内存映射文件们的句柄
+    private static FileChannel queueOffsetFile=null;//queueOffset 文件的句柄
     private static final HashMap<String , Integer> bucketIndex=new HashMap<>();
     private static final MessageStore INSTANCE = new MessageStore();
-    private Thread loopSaveHandler=null;
-    private Thread indexSaveHandler=null;							
+    private Thread loopSaveHandler=null;//循环存消息线程句柄
+    private Thread indexSaveHandler=null;				//循环存offset的线程句柄			
+    
+    private Map<String, ArrayList<Message>> messageBuckets = new ConcurrentHashMap<>();
+
+    private Map<String, HashMap<String, Integer>> queueOffsets = new HashMap<>();//记录当前需要消费的消息在文件中的偏移
+    
     public MessageStore() {
 		// TODO Auto-generated constructor stub
     	//TODO 从文件中读queueOffset
-    	FileChannel f = fileHandlers.get(OFFSETFILE);
     	try{
-			if (f == null) {
+			if (queueOffsetFile == null) {
 				//TODO
 				File file = new File(STORE_PATH + File.pathSeparator + OFFSETFILE + EXTNAME);
 				if (file.exists()) {
 //					System.out.println(file.getAbsolutePath());
-					f = new RandomAccessFile(file, "rw").getChannel();
-					fileHandlers.put(OFFSETFILE, f);
+					queueOffsetFile = new RandomAccessFile(file, "rw").getChannel();
 					ByteBuffer buff=ByteBuffer.allocate(MAXMESSAGELENGTH);
-					f.read(buff);
+					queueOffsetFile.read(buff);
 					queueOffsets=(HashMap) new ObjectInputStream(new ByteArrayInputStream(buff.array())).readObject();
 				}	
 			}
@@ -59,7 +62,7 @@ public class MessageStore {
     	}catch (Exception e){
     		e.printStackTrace();
     	}
-    	loopSaveHandler=new Thread(new LoopSave());
+  //  	loopSaveHandler=new Thread(new LoopSave());
     	//loopSaveHandler.start();
     	indexSaveHandler=new Thread(new IndexSave());
     	//indexSaveHandler.start();
@@ -77,68 +80,80 @@ public class MessageStore {
     	}
     }
     
-    private Map<String, ArrayList<Message>> messageBuckets = new ConcurrentHashMap<>();
-
-    private Map<String, HashMap<String, Integer>> queueOffsets = new HashMap<>();
-    public synchronized void putMessage(String bucket, Message message) {
-    	FileChannel f = fileHandlers.get(bucket);
+    
+    public  long putMessage(String bucket, Message message) {
+    	MappedByteBuffer mmb = fileHandlers.get(bucket);
+    	long start=0;
+    	long end =0;
 		try {
-			if (f == null) {
+			
+			if (mmb == null) {
 				//TODO
-				File file = new File(STORE_PATH + File.pathSeparator + bucket + EXTNAME);
-				if (!file.exists()) {
-					file.createNewFile();
+				synchronized (this) {
+					mmb = fileHandlers.get(bucket);
+					if (mmb == null) {
+						File file = new File(STORE_PATH + File.pathSeparator + bucket + EXTNAME);
+						if (!file.exists()) {
+							file.createNewFile();
+						}
+						FileChannel f = new RandomAccessFile(file, "rw").getChannel();
+						mmb=f.map(MapMode.READ_WRITE, 0, MAXMAPBYTEBUFFER);
+						fileHandlers.put(bucket, mmb);
+					}
 				}
-				f = new RandomAccessFile(file, "rw").getChannel();
-				fileHandlers.put(bucket, f);
 			}
+			
 			ByteArrayOutputStream out=new ByteArrayOutputStream();
 			ObjectOutputStream oos=new ObjectOutputStream(out);
 			oos.writeObject(message);
 			byte[] objectBuf=out.toByteArray();
+			
 //				System.out.println(objectBuf.length);
 			ByteBuffer buf=ByteBuffer.allocate(objectBuf.length+4);
 			buf.putInt(objectBuf.length);
 			buf.put(objectBuf);
 			buf.flip();
-			synchronized (f) {
-				MappedByteBuffer mmb=f.map(FileChannel.MapMode.READ_WRITE, f.size(),objectBuf.length+4 );
+			start = System.currentTimeMillis();
+			synchronized (mmb) {
 				mmb.put(buf);
 			}
+			end = System.currentTimeMillis();
 		} catch (Exception e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
-
+		return end-start;
     }
 
     public synchronized Message pullMessage(String queue, String bucket) {
         ArrayList<Message> bucketList = messageBuckets.get(bucket);
-        FileChannel f = fileHandlers.get(bucket);
+        MappedByteBuffer mmb = fileHandlers.get(bucket);
+        
         try{
-	        if (f == null) {//file not exist return null
+	        if (mmb == null) {//file not exist return null
 	        	File file = new File(STORE_PATH + File.pathSeparator + bucket + EXTNAME);
 				if (!file.exists()) {
 					return null;
 				}
-				f = new RandomAccessFile(file, "rw").getChannel();
-				fileHandlers.put(bucket, f);
+				FileChannel f = new RandomAccessFile(file, "rw").getChannel();
+				mmb=f.map(MapMode.READ_WRITE,0, MAXMAPBYTEBUFFER);
+				fileHandlers.put(bucket, mmb);
 	        }
+	        
 	        HashMap<String, Integer> offsetMap = queueOffsets.get(queue);
 	        if (offsetMap == null) {
 	            offsetMap = new HashMap<>();
 	            queueOffsets.put(queue, offsetMap);
 	        }
-	        int[] offset =new int[1]; 
+	        int[] offset =new int[1];
 	        offset[0]=offsetMap.getOrDefault(bucket, 0);
 	        //from file
-	        if (offset[0] >= f.size()) {
+	        if (offset[0] >= mmb.capacity()) {
 	            return null;
 	        }
-	       
 	        Message message = null;
-	        synchronized(f){
-	        	message=getMessageFromFile(f, offset);
+	        synchronized(mmb){
+	        	message=getMessageFromFile(mmb, offset);
 	        }
 	        if(message==null)
 	        	return null;
@@ -151,11 +166,10 @@ public class MessageStore {
         }
         return null;
     }
-    private DefaultBytesMessage getMessageFromFile(FileChannel f,int[] offset){
+    private DefaultBytesMessage getMessageFromFile(MappedByteBuffer mmb,int[] offset){
     	try {
-    		MappedByteBuffer mmb=f.map(MapMode.READ_ONLY, offset[0], 4);
+    		mmb.position(offset[0]);
     		int length=mmb.getInt();
-    		mmb=f.map(MapMode.READ_ONLY, offset[0]+4, length);
     		byte[] buf=new byte[length];
     		mmb.get(buf);
     		ByteArrayInputStream in=new ByteArrayInputStream(buf);
@@ -178,15 +192,14 @@ public class MessageStore {
 			try {
 				while (true) {
 					Thread.sleep(LOOPINTERVAL);
-					FileChannel f = fileHandlers.get(OFFSETFILE);
-					if (f == null) {
+					
+					if (queueOffsetFile == null) {
 						//TODO
 						File file = new File(STORE_PATH + File.pathSeparator + OFFSETFILE + EXTNAME);
 						if (!file.exists()) {
 							file.createNewFile();
 						}
-						f = new RandomAccessFile(file, "rw").getChannel();
-						fileHandlers.put(OFFSETFILE, f);
+						queueOffsetFile = new RandomAccessFile(file, "rw").getChannel();
 					}
 					buf.clear();
 					ByteArrayOutputStream out=new ByteArrayOutputStream();
@@ -195,10 +208,10 @@ public class MessageStore {
 					byte[] objectBuf=out.toByteArray();
 					buf.put(objectBuf);
 					buf.flip();
-					synchronized (f) {
-						f.position(0);
-						f.write(buf);
-						f.force(true);
+					synchronized (queueOffsetFile) {
+						queueOffsetFile.position(0);
+						queueOffsetFile.write(buf);
+						queueOffsetFile.force(true);
 					} 
 				}
 			} catch (Exception e) {
@@ -207,7 +220,7 @@ public class MessageStore {
 			}
 		}
     }
-   
+   /**
     private class LoopSave implements Runnable{
     	@Override
     	public void run() {
@@ -264,4 +277,5 @@ public class MessageStore {
 			}
 	   }
     }
+    */
 }

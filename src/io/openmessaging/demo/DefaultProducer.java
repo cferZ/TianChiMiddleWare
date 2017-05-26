@@ -12,7 +12,7 @@ import io.openmessaging.Promise;
 public class DefaultProducer  implements Producer {
     private MessageFactory messageFactory = new DefaultMessageFactory();
     private MessageStore messageStore = MessageStore.getInstance();
-
+    public  long times=0;
     private KeyValue properties;
 
     public DefaultProducer(KeyValue properties) {
@@ -42,14 +42,15 @@ public class DefaultProducer  implements Producer {
     }
 
     @Override public void send(Message message) {
-       // if (message == null) throw new ClientOMSException("Message should not be null");
-        String topic = message.headers().getString(MessageHeader.TOPIC);
-        String queue = message.headers().getString(MessageHeader.QUEUE);
-     //   if ((topic == null && queue == null) || (topic != null && queue != null)) {
-    //        throw new ClientOMSException(String.format("Queue:%s Topic:%s should put one and only one", true, queue));
-     //   }
-
-        messageStore.putMessage(topic != null ? topic : queue, message);
+    	long time=0;
+        if(message.headers().getString(MessageHeader.TOPIC)!=null){
+        	time=messageStore.putMessage(message.headers().getString(MessageHeader.TOPIC), message);
+        }
+        else{
+        	time=messageStore.putMessage(message.headers().getString(MessageHeader.QUEUE), message);
+        }
+       
+        times+=time;
     }
 
     @Override public void send(Message message, KeyValue properties) {

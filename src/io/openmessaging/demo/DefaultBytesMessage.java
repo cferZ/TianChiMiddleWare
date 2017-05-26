@@ -81,34 +81,7 @@ public class DefaultBytesMessage implements BytesMessage,Serializable {
         properties.put(key, value);
         return this;
     }
-    public ByteBuffer getByteBuffer(){
-    	ByteBuffer buf=null;
-    	try{
-	    	byte[] header=((DefaultKeyValue)headers).getBytes();
-	    	byte[] propertiesbuf=null;
-	    	if(properties==null){
-	    		propertiesbuf=new byte[0];
-	    	}
-	    	else{
-	    		propertiesbuf=((DefaultKeyValue)properties).getBytes();
-	    	}
-	    	
-	    	int bufLength=header.length+propertiesbuf.length+body.length+27;
-	    	buf=ByteBuffer.allocate(bufLength);
-	    	buf.put((byte) 0x01);
-	    	buf.putLong(header.length);
-	    	buf.put(header);
-	    	buf.put((byte) 0x02);
-	    	buf.putLong(propertiesbuf.length);
-	    	buf.put(propertiesbuf);
-	    	buf.put((byte) 0x03);
-	    	buf.putLong(body.length);
-	    	buf.put(body);
-	    	buf.flip();
-    	}
-    	catch(IOException e){}
-	    return buf;
-    }
+   
     public static DefaultBytesMessage buildMessageFromByte(byte[] buf){
     	try {
 	    	ByteArrayInputStream bais=new ByteArrayInputStream(buf);
