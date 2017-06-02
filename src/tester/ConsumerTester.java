@@ -108,7 +108,7 @@ public class ConsumerTester {
     }
 
     public static void main(String[] args) throws Exception {
-    //	Thread.sleep(20000);
+    	Thread.sleep(20000);
         Thread[] ts = new Thread[Constants.CON_NUM];
         for (int i = 0; i < ts.length; i++) {
             ts[i] = new ConsumerTask(Constants.QUEUE_PRE + i,
